@@ -1,0 +1,161 @@
+= RH-SSO Ldap lab
+Paulo Jerônimo <paulojeronimo@gmail.com>, {localdatetime}
+:toc: left
+:icons: font
+:numbered:
+:nofooter:
+
+:uri-user-federation: http://localhost:8080/auth/admin/master/console/#/realms/master/user-federation
+:uri-edit-mode: https://access.redhat.com/documentation/en-us/red_hat_single_sign-on/7.4/html/server_administration_guide/user-storage-federation#edit_mode
+
+:RH-SSO: https://access.redhat.com/products/red-hat-single-sign-on[RH-SSO^]
+:admin-console: http://localhost:8080/auth/admin/[admin console^]
+
+== Introduction
+
+The goal of this proof of concept is to showcase how it is possible to
+expose and to use LDAP roles at {RH-SSO} 7.4 level and explore its
+behavior.
+
+== Prerequisites
+
+. Docker and Docker Composed installed.
+
+////
+== Docker Compose configuration
+
+----
+include::docker-compose.yml[]
+----
+////
+
+== Start
+
+----
+$ docker-compose up -d
+$ docker-compose logs -f
+----
+
+== Ldap configuration
+
+Now let's try to load users from LDAP into RH-SSO.
+
+Open the {admin-console}.
+
+* User: `admin`.
+* Password: `admin`.
+
+Click on {uri-user-federation}[User Federation], select `ldap` from the
+drop-down.
+
+Fill in the following values:
+
+//* {uri-edit-mode}[Edit Mode^]: `UNSYNCED`
+//* Sync Registrations: ON
+* Vendor: `Red Hat Directory Server`
+* UUID LDAP attribute: `entryUUID`
+* Connection URL: `ldap://ldap-container:389`
+* Users DN: `ou=People,dc=example,dc=org`
+* Bind DN: `cn=admin,dc=example,dc=org`
+* Bind Credential: `admin`
+
+Click on `Save` then click on `Synchronize all users`.
+
+Now go to http://localhost:8080/auth/admin/master/console/#/realms/master/users[Users] and click `View all users`.
+You will see two new users `bwilson` and `jbrown`.
+Both these users have the password `password`.
+The user `jbrown` belongs to `ldap-admin` and `ldap-users` group.
+The user `bwilson` belongs only `ldap-users` group.
+
+=== Testing login with the created users
+
+Logout the `admin` user.
+
+Login with `bwilson` user.
+Note that this user will receive a `Forbidden` page when trying to
+administer the console.
+But he will give access to manage their own account.
+
+NOTE: The same will occurs if you repeat the steps by login with the
+user `jbrown`.
+
+=== Creating a ldap group mapper
+
+Let's create an group named `ldap-admin-group`.
+This `ldap-admin-group` has to be created with following mapping
+properties:
+
+* Name: `ldap-admin-group`
+* Mapper Type: `group-ldap-mapper` (this the property to be selected when
+creating this new ldap mapper).
+* Ldap group DN: `ou=realmRoles,dc=example,dc=org`
+* LDAP filter: `(cn=ldap-admin)`
+
+Click on `Save` then click on `Sync LDAP Groups to Keycloak`.
+
+Go to `Manage/Groups` and note that group `ldap-admin` will appear.
+
+=== Adding SSO Role to keycloak group
+
+The LDAP group (`ldap-admin`) can now be seen at Keycloak SSO level
+after group synchronization performed previously.
+So now will add a `Role` to this group.
+
+Go to `Groups`/`ldap-admin`, select the group and click `Edit`.
+
+Click on `Role Mappings`, select the `admin` role and click on `Add
+selected`.
+
+The keycloak `admin` role will be assigned as effective roles to this
+`ldap-admin` group.
+As a consequence, it means that any user which belongs to the
+`ldap-admin` group will be automatically assigned the keycloak admin
+role which allows him to connect to the admin console.
+
+Logout the `admin` user and test the login with user `jbrown`.
+You should not see a `Forbidden` page anymore.
+
+=== Creating a new ldap-admin user
+
+Create a new user (`paulojeronimo`) at LDAP level by copying
+and editing the properties from `jbrown` user.
+So, he will also be a member of `ldap-admin` group.
+That is, the `uid=paulojeronimo,ou=People,dc=example,dc=org` will be
+added as being part of the member `ldap-admin` group.
+
+After that, this new user should be retrived at RH-SSO level.
+Synchronization can be achieved by defining periodic sync, or on demand
+sync.
+Due to the keycloak `ldap-admin` group mapping, the new user gets also
+automatically assigned keycloak effective admin rights.
+
+=== Logging to the admin console with a new admin user-basis
+
+It is now possible to log to keycloak admin console with a new user
+different from admin, as this new user has got also the admin rights.
+
+Test a login with user `paulojeronimo` expecting the same behavior as if
+you were logged with the `jbrown` user.
+
+== Stop
+
+----
+$ docker-compose down -v
+----
+
+== References
+
+* Documents (Red Hat):
+** https://access.redhat.com/documentation/en-us/red_hat_single_sign-on/7.4/html/server_administration_guide/user-storage-federation
+** https://access.redhat.com/solutions/4183131
+* Documents (Community):
+** https://www.janua.fr/mapping-ldap-group-and-roles-to-redhat-sso-keycloak/
+** https://www.janua.fr/first-step-using-rh-sso-7-1-redhat-single-sign-on/
+** https://medium.com/better-programming/ldap-docker-image-with-populated-users-3a5b4d090aa4
+* GitHub:
+** https://github.com/stianst/keycloak-containers-demo/
+** https://github.com/osixia/docker-openldap
+* Ldap browsers:
+** http://www.ldapbrowsermac.com/
+** http://jxplorer.org/
+** https://directory.apache.org/studio/
